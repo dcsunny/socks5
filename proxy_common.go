@@ -1,4 +1,4 @@
-package main
+package socks5
 
 import (
 	"bufio"
@@ -9,10 +9,11 @@ import (
 	"strings"
 )
 
-// connectViaHttpProxy connects to the target through an HTTP proxy
-func connectViaHttpProxy(proxyHost, proxyPort, targetHost, targetPort string) (net.Conn, error) {
+// ConnectViaHttpProxy connects to the target through an HTTP proxy
+func ConnectViaHttpProxy(proxyAddr, targetHost, targetPort string) (net.Conn, error) {
 	// Connect to the HTTP proxy
-	proxyConn, err := net.Dial("tcp", net.JoinHostPort(proxyHost, proxyPort))
+	proxyAddr = strings.Split(proxyAddr, "://")[1]
+	proxyConn, err := net.Dial("tcp", proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to HTTP proxy: %v", err)
 	}
@@ -61,17 +62,18 @@ func connectViaHttpProxy(proxyHost, proxyPort, targetHost, targetPort string) (n
 	return proxyConn, nil
 }
 
-// connectViaSocks5Proxy connects to the target through a SOCKS5 proxy
-func connectViaSocks5Proxy(proxyHost, proxyPort, targetHost, targetPort string) (net.Conn, error) {
+// ConnectViaSocks5Proxy connects to the target through a SOCKS5 proxy
+func ConnectViaSocks5Proxy(proxyAddr, targetHost, targetPort string) (net.Conn, error) {
+	proxyAddr = strings.Split(proxyAddr, "://")[1]
 	// Connect to the SOCKS5 proxy
-	proxyConn, err := net.Dial("tcp", net.JoinHostPort(proxyHost, proxyPort))
+	proxyConn, err := net.Dial("tcp", proxyAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to SOCKS5 proxy: %v", err)
 	}
 
 	// SOCKS5 handshake
 	// Send version and authentication methods
-	_, err = proxyConn.Write([]byte{socks5Version, 1, 0}) // Version 5, 1 method, no authentication
+	_, err = proxyConn.Write([]byte{Socks5Version, 1, 0}) // Version 5, 1 method, no authentication
 	if err != nil {
 		proxyConn.Close()
 		return nil, fmt.Errorf("failed to send SOCKS5 handshake: %v", err)
@@ -85,14 +87,14 @@ func connectViaSocks5Proxy(proxyHost, proxyPort, targetHost, targetPort string) 
 		return nil, fmt.Errorf("failed to read SOCKS5 handshake response: %v", err)
 	}
 
-	if resp[0] != socks5Version || resp[1] != 0 {
+	if resp[0] != Socks5Version || resp[1] != 0 {
 		proxyConn.Close()
 		return nil, fmt.Errorf("SOCKS5 handshake failed: %v", resp)
 	}
 
 	// Send connection request
 	request := make([]byte, 0, 10)
-	request = append(request, socks5Version) // Version
+	request = append(request, Socks5Version) // Version
 	request = append(request, 1)             // Command: connect
 	request = append(request, 0)             // Reserved
 
@@ -132,7 +134,7 @@ func connectViaSocks5Proxy(proxyHost, proxyPort, targetHost, targetPort string) 
 		return nil, fmt.Errorf("failed to read SOCKS5 connect response: %v", err)
 	}
 
-	if response[0] != socks5Version {
+	if response[0] != Socks5Version {
 		proxyConn.Close()
 		return nil, fmt.Errorf("unexpected SOCKS5 version: %v", response[0])
 	}
@@ -164,8 +166,8 @@ func connectViaSocks5Proxy(proxyHost, proxyPort, targetHost, targetPort string) 
 	return proxyConn, nil
 }
 
-// isConnectionClosed checks if an error is related to a closed connection
-func isConnectionClosed(err error) bool {
+// IsConnectionClosed checks if an error is related to a closed connection
+func IsConnectionClosed(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -178,8 +180,8 @@ func isConnectionClosed(err error) bool {
 		strings.Contains(errStr, "i/o timeout")
 }
 
-// contains checks if a byte array contains a specific value
-func contains(arr []byte, val byte) bool {
+// Contains checks if a byte array contains a specific value
+func Contains(arr []byte, val byte) bool {
 	for _, v := range arr {
 		if v == val {
 			return true

@@ -1,4 +1,4 @@
-package main
+package socks5
 
 import (
 	"bufio"
@@ -6,17 +6,46 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 )
 
-func main() {
-	listener, err := net.Listen("tcp", "127.0.0.1:21080")
+// DownstreamProxyInfo stores downstream proxy configuration
+type DownstreamProxyInfo struct {
+	ProxyType string // http, socks5, etc.
+	Addr      string
+	Enabled   bool
+}
+
+// Global variable to store downstream proxy configuration
+var downstreamProxy *DownstreamProxyInfo
+
+func Server(listenAddr, downProxy string) {
+	// Configure downstream proxy if provided
+	if downProxy != "" {
+		downstreamProxy = &DownstreamProxyInfo{
+			Addr:    downProxy,
+			Enabled: true,
+		}
+		fmt.Println(downProxy)
+		if strings.HasPrefix(downProxy, "socks5") {
+			downstreamProxy.ProxyType = "socks5"
+		} else if strings.HasPrefix(downProxy, "https") {
+			downstreamProxy.ProxyType = "https"
+		} else if strings.HasPrefix(downProxy, "http") {
+			downstreamProxy.ProxyType = "http"
+		} else {
+			log.Fatalf("Unsupported downstream proxy type: %s", downProxy)
+		}
+	}
+
+	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		log.Fatalf("Failed to listen on port 21080: %v", err)
+		log.Fatalf("Failed to listen on %s: %v", listenAddr, err)
 	}
 	defer listener.Close()
 
-	log.Println("SOCKS5 proxy server started on 127.0.0.1:21080")
+	log.Printf("SOCKS5 proxy server started on %s", listenAddr)
 
 	for {
 		conn, err := listener.Accept()
@@ -29,6 +58,7 @@ func main() {
 }
 
 func handleConnection(conn net.Conn) {
+	defer conn.Close()
 	bufConn := bufio.NewReader(conn)
 
 	// Read the version and number of authentication methods
@@ -38,7 +68,7 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 	version := uint8(versionByte)
-	if version != socks5Version {
+	if version != Socks5Version {
 		log.Printf("Unsupported SOCKS version: %d (0x%02X)", version, version)
 		return
 	}
@@ -59,13 +89,13 @@ func handleConnection(conn net.Conn) {
 	}
 
 	// We only support no authentication
-	if !contains(methods, 0) {
+	if !Contains(methods, 0) {
 		log.Printf("No supported authentication methods")
 		return
 	}
 
 	// Send the response
-	_, err = conn.Write([]byte{socks5Version, 0})
+	_, err = conn.Write([]byte{Socks5Version, 0})
 	if err != nil {
 		log.Printf("Failed to write response: %v", err)
 		return
@@ -134,39 +164,47 @@ func handleConnection(conn net.Conn) {
 	}
 	targetPort = fmt.Sprintf("%d", (int(portBytes[0])<<8)|int(portBytes[1]))
 
-	// Check if system proxy is enabled
-	sysProxy, err := getSystemProxy()
-	if err != nil {
-		log.Printf("Failed to get system proxy: %v", err)
-	}
-
 	var targetConn net.Conn
 
-	// If system proxy is enabled, connect through it
-	if sysProxy != nil && sysProxy.Enabled {
-		log.Printf("Using system proxy: %s://%s:%s", sysProxy.ProxyType, sysProxy.Host, sysProxy.Port)
-		switch sysProxy.ProxyType {
+	if downstreamProxy != nil && downstreamProxy.Enabled {
+		log.Printf("Using downstream proxy: %s", downstreamProxy.Addr)
+		switch downstreamProxy.ProxyType {
 		case "http", "https":
-			// For HTTP proxies, we need to use HTTP CONNECT method
-			targetConn, err = connectViaHttpProxy(sysProxy.Host, sysProxy.Port, targetHost, targetPort)
+			targetConn, err = ConnectViaHttpProxy(downstreamProxy.Addr, targetHost, targetPort)
 		case "socks5":
-			// For SOCKS5 proxies
-			targetConn, err = connectViaSocks5Proxy(sysProxy.Host, sysProxy.Port, targetHost, targetPort)
+			targetConn, err = ConnectViaSocks5Proxy(downstreamProxy.Addr, targetHost, targetPort)
 		default:
-			log.Printf("Unsupported proxy type: %s, connecting directly", sysProxy.ProxyType)
-			targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+			err = fmt.Errorf("unsupported downstream proxy type: %s", downstreamProxy.ProxyType)
 		}
 	} else {
-		// Connect directly if no system proxy is enabled
-		targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+		sysProxy, err := GetSystemProxy()
+		if err != nil {
+			log.Printf("Failed to get system proxy: %v", err)
+		}
+		if sysProxy != nil && sysProxy.Enabled {
+			log.Printf("Using system proxy: %s", sysProxy.Addr)
+			switch sysProxy.ProxyType {
+			case "http", "https":
+				targetConn, err = ConnectViaHttpProxy(sysProxy.Addr, targetHost, targetPort)
+			case "socks5":
+				targetConn, err = ConnectViaSocks5Proxy(sysProxy.Addr, targetHost, targetPort)
+			default:
+				log.Printf("Unsupported proxy type: %s, connecting directly", sysProxy.ProxyType)
+				targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+			}
+		} else {
+			// Connect directly if no system proxy is enabled
+			targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+		}
 	}
 
 	if err != nil {
 		log.Printf("Failed to connect to target: %v", err)
-		conn.Close()
 		return
 	}
-
+	if targetConn == nil {
+		return
+	}
 	// Send the response - BND.ADDR and BND.PORT should be the address and port that the proxy is using
 	// Get the local address that the proxy is using for this connection
 	localAddr := targetConn.LocalAddr().(*net.TCPAddr)
@@ -175,7 +213,7 @@ func handleConnection(conn net.Conn) {
 
 	// Prepare the response
 	response := make([]byte, 10)
-	response[0] = socks5Version // VER
+	response[0] = Socks5Version // VER
 	response[1] = 0             // REP - 0 for success
 	response[2] = 0             // RSV - reserved, must be 0
 
@@ -211,7 +249,7 @@ func handleConnection(conn net.Conn) {
 		defer wg.Done()
 		defer targetConn.Close() // Close target connection when done
 		_, err := io.Copy(targetConn, conn)
-		if err != nil && !isConnectionClosed(err) {
+		if err != nil && !IsConnectionClosed(err) {
 			log.Printf("Failed to copy data from client to target: %v", err)
 		}
 	}()
@@ -221,7 +259,7 @@ func handleConnection(conn net.Conn) {
 		defer wg.Done()
 		defer conn.Close() // Close client connection when done
 		_, err := io.Copy(conn, targetConn)
-		if err != nil && !isConnectionClosed(err) {
+		if err != nil && !IsConnectionClosed(err) {
 			log.Printf("Failed to copy data from target to client: %v", err)
 		}
 	}()

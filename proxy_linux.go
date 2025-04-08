@@ -1,10 +1,9 @@
 //go:build linux
 // +build linux
 
-package main
+package socks5
 
 import (
-	"net/url"
 	"os"
 )
 
@@ -22,41 +21,17 @@ func getProxy() (*ProxyInfo, error) {
 	}
 
 	if httpProxy != "" {
-		proxyURL, err := url.Parse(httpProxy)
-		if err != nil {
-			return nil, err
-		}
-
-		host := proxyURL.Hostname()
-		port := proxyURL.Port()
-		if port == "" {
-			port = "80"
-		}
-
 		return &ProxyInfo{
 			ProxyType: "http",
-			Host:      host,
-			Port:      port,
+			Addr:      httpProxy,
 			Enabled:   true,
 		}, nil
 	}
 
 	if socksProxy != "" {
-		proxyURL, err := url.Parse(socksProxy)
-		if err != nil {
-			return nil, err
-		}
-
-		host := proxyURL.Hostname()
-		port := proxyURL.Port()
-		if port == "" {
-			port = "1080"
-		}
-
 		return &ProxyInfo{
 			ProxyType: "socks5",
-			Host:      host,
-			Port:      port,
+			Addr:      socksProxy,
 			Enabled:   true,
 		}, nil
 	}

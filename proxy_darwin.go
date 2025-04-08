@@ -1,9 +1,10 @@
 //go:build darwin
 // +build darwin
 
-package main
+package socks5
 
 import (
+	"fmt"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -25,8 +26,7 @@ func getProxy() (*ProxyInfo, error) {
 		if len(hostMatches) > 1 && len(portMatches) > 1 {
 			return &ProxyInfo{
 				ProxyType: "http",
-				Host:      hostMatches[1],
-				Port:      portMatches[1],
+				Addr:      fmt.Sprintf("http://%s:%s", hostMatches[1], portMatches[1]),
 				Enabled:   true,
 			}, nil
 		}
@@ -46,8 +46,7 @@ func getProxy() (*ProxyInfo, error) {
 		if len(hostMatches) > 1 && len(portMatches) > 1 {
 			return &ProxyInfo{
 				ProxyType: "socks5",
-				Host:      hostMatches[1],
-				Port:      portMatches[1],
+				Addr:      fmt.Sprintf("socks5://%s:%s", hostMatches[1], portMatches[1]),
 				Enabled:   true,
 			}, nil
 		}

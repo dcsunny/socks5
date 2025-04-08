@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package main
+package socks5
 
 import (
 	"fmt"
@@ -91,8 +91,7 @@ func getProxy() (*ProxyInfo, error) {
 	// Return the proxy information
 	return &ProxyInfo{
 		ProxyType: proxyType,
-		Host:      host,
-		Port:      port,
+		Addr:      fmt.Sprintf("%s://%s:%s", proxyType, host, port),
 		Enabled:   true,
 	}, nil
 }

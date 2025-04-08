@@ -44,3 +44,4 @@ go.work
 go.work.sum
 socks5
 socks5.exe
+cmd/cmd
