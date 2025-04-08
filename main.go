@@ -6,12 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
-	"strings"
 	"sync"
-)
-
-const (
-	socks5Version = uint8(5)
 )
 
 func main() {
@@ -34,7 +29,6 @@ func main() {
 }
 
 func handleConnection(conn net.Conn) {
-
 	bufConn := bufio.NewReader(conn)
 
 	// Read the version and number of authentication methods
@@ -140,8 +134,33 @@ func handleConnection(conn net.Conn) {
 	}
 	targetPort = fmt.Sprintf("%d", (int(portBytes[0])<<8)|int(portBytes[1]))
 
-	// Connect to the target
-	targetConn, err := net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+	// Check if system proxy is enabled
+	sysProxy, err := getSystemProxy()
+	if err != nil {
+		log.Printf("Failed to get system proxy: %v", err)
+	}
+
+	var targetConn net.Conn
+
+	// If system proxy is enabled, connect through it
+	if sysProxy != nil && sysProxy.Enabled {
+		log.Printf("Using system proxy: %s://%s:%s", sysProxy.ProxyType, sysProxy.Host, sysProxy.Port)
+		switch sysProxy.ProxyType {
+		case "http", "https":
+			// For HTTP proxies, we need to use HTTP CONNECT method
+			targetConn, err = connectViaHttpProxy(sysProxy.Host, sysProxy.Port, targetHost, targetPort)
+		case "socks5":
+			// For SOCKS5 proxies
+			targetConn, err = connectViaSocks5Proxy(sysProxy.Host, sysProxy.Port, targetHost, targetPort)
+		default:
+			log.Printf("Unsupported proxy type: %s, connecting directly", sysProxy.ProxyType)
+			targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+		}
+	} else {
+		// Connect directly if no system proxy is enabled
+		targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+	}
+
 	if err != nil {
 		log.Printf("Failed to connect to target: %v", err)
 		conn.Close()
@@ -209,27 +228,4 @@ func handleConnection(conn net.Conn) {
 
 	// Wait for both copy operations to complete
 	wg.Wait()
-}
-
-func contains(arr []byte, val byte) bool {
-	for _, v := range arr {
-		if v == val {
-			return true
-		}
-	}
-	return false
-}
-
-// isConnectionClosed checks if an error is related to a closed connection
-func isConnectionClosed(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	errStr := err.Error()
-	return strings.Contains(errStr, "use of closed network connection") ||
-		strings.Contains(errStr, "connection reset by peer") ||
-		strings.Contains(errStr, "broken pipe") ||
-		strings.Contains(errStr, "connection refused") ||
-		strings.Contains(errStr, "i/o timeout")
 }
