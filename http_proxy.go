@@ -23,7 +23,6 @@ func (s *HttpProxyDialer) Dial(network, addr string) (net.Conn, error) {
 	}
 	transport = &http.Transport{
 		Proxy: func(req *http.Request) (*url.URL, error) {
-			fmt.Printf("Using proxy: %v\n", s.ProxyUrl)
 			return s.ProxyUrl, nil
 		},
 		DialContext: s.defaultTransportDialContext(&net.Dialer{

@@ -2,6 +2,7 @@ package socks5
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"net/url"
 	"strings"
@@ -13,16 +14,15 @@ import (
 func ConnectViaHttpProxy(proxyAddr, targetHost, targetPort string) (net.Conn, error) {
 	proxyURL, err := url.Parse(proxyAddr)
 	if err != nil {
-		fmt.Println("Error parsing proxy URL:", err)
+		log.Printf("Error parsing proxy URL:%s", err)
 		return nil, err
 	}
 	remoteAddr := fmt.Sprintf("%s:%s", targetHost, targetPort)
 	dialer := &HttpProxyDialer{ProxyUrl: proxyURL}
 	var conn net.Conn
-	fmt.Println(remoteAddr)
 	conn, err = dialer.Dial("tcp", remoteAddr)
 	if err != nil {
-		fmt.Println(err)
+		log.Print(err)
 		return nil, err
 	}
 	return conn, nil
@@ -32,7 +32,7 @@ func ConnectViaHttpProxy(proxyAddr, targetHost, targetPort string) (net.Conn, er
 func ConnectViaSocks5Proxy(proxyAddr, targetHost, targetPort string) (net.Conn, error) {
 	proxyURL, err := url.Parse(proxyAddr)
 	if err != nil {
-		fmt.Println("Error parsing proxy URL:", err)
+		log.Printf("Error parsing proxy URL:%s", err)
 		return nil, err
 	}
 

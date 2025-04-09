@@ -81,7 +81,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 	version := uint8(versionByte)
 	if version != Socks5Version {
-		log.Printf("Unsupported SOCKS version: %d (0x%02X)", version, version)
+		//log.Printf("Unsupported SOCKS version: %d (0x%02X)", version, version)
 		return
 	}
 
@@ -288,7 +288,7 @@ func (s *Server) forward(targetConn net.Conn, conn net.Conn) {
 
 func (s *Server) useDownProxy(targetHost string,
 	targetPort string) (net.Conn, error) {
-	log.Printf("Using downstream proxy: %s", s.downProxyInfo.Addr)
+	//log.Printf("Using downstream proxy: %s", s.downProxyInfo.Addr)
 	switch s.downProxyInfo.ProxyType {
 	case "http", "https":
 		return ConnectViaHttpProxy(s.downProxyInfo.Addr, targetHost, targetPort)
@@ -300,7 +300,7 @@ func (s *Server) useDownProxy(targetHost string,
 }
 
 func (this *Server) useSystemProxy(sysProxy *ProxyInfo, targetHost string, targetPort string) (net.Conn, error) {
-	log.Printf("Using system proxy: %s", sysProxy.Addr)
+	//log.Printf("Using system proxy: %s", sysProxy.Addr)
 	switch sysProxy.ProxyType {
 	case "http", "https":
 		return ConnectViaHttpProxy(sysProxy.Addr, targetHost, targetPort)
