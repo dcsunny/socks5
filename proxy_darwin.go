@@ -52,6 +52,8 @@ func getProxy() (*ProxyInfo, error) {
 		}
 	}
 
+	//检查环境变量的代理
+
 	// No proxy enabled
 	return nil, nil
 }

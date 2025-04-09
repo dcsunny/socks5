@@ -10,42 +10,54 @@ import (
 	"sync"
 )
 
-// DownstreamProxyInfo stores downstream proxy configuration
-type DownstreamProxyInfo struct {
+// DownProxyInfo stores downstream proxy configuration
+type DownProxyInfo struct {
 	ProxyType string // http, socks5, etc.
 	Addr      string
 	Enabled   bool
 }
 
-// Global variable to store downstream proxy configuration
-var downstreamProxy *DownstreamProxyInfo
+type Server struct {
+	systemProxy   bool   // 是否使用系统代理设置
+	downProxy     string // 下游代理地址
+	listenAddr    string
+	downProxyInfo *DownProxyInfo
+}
 
-func Server(listenAddr, downProxy string) {
-	// Configure downstream proxy if provided
+func NewServer(useSystemProxy bool, listenAddr string, downProxy string) *Server {
+	s := &Server{
+		systemProxy: useSystemProxy,
+		downProxy:   downProxy,
+		listenAddr:  listenAddr,
+	}
+	downProxyInfo := &DownProxyInfo{
+		Addr: s.downProxy,
+	}
 	if downProxy != "" {
-		downstreamProxy = &DownstreamProxyInfo{
-			Addr:    downProxy,
-			Enabled: true,
-		}
-		fmt.Println(downProxy)
-		if strings.HasPrefix(downProxy, "socks5") {
-			downstreamProxy.ProxyType = "socks5"
-		} else if strings.HasPrefix(downProxy, "https") {
-			downstreamProxy.ProxyType = "https"
-		} else if strings.HasPrefix(downProxy, "http") {
-			downstreamProxy.ProxyType = "http"
+		downProxyInfo.Enabled = true
+		if strings.HasPrefix(s.downProxy, "socks5") {
+			downProxyInfo.ProxyType = "socks5"
+		} else if strings.HasPrefix(s.downProxy, "https") {
+			downProxyInfo.ProxyType = "https"
+		} else if strings.HasPrefix(s.downProxy, "http") {
+			downProxyInfo.ProxyType = "http"
 		} else {
-			log.Fatalf("Unsupported downstream proxy type: %s", downProxy)
+			downProxyInfo.Enabled = false
 		}
 	}
+	s.downProxyInfo = downProxyInfo
+	return s
+}
 
-	listener, err := net.Listen("tcp", listenAddr)
+func (s *Server) Run() {
+
+	listener, err := net.Listen("tcp", s.listenAddr)
 	if err != nil {
-		log.Fatalf("Failed to listen on %s: %v", listenAddr, err)
+		log.Fatalf("Failed to listen on %s: %v", s.listenAddr, err)
 	}
 	defer listener.Close()
 
-	log.Printf("SOCKS5 proxy server started on %s", listenAddr)
+	log.Printf("SOCKS5 proxy server started on %s", s.listenAddr)
 
 	for {
 		conn, err := listener.Accept()
@@ -53,11 +65,11 @@ func Server(listenAddr, downProxy string) {
 			log.Printf("Failed to accept connection: %v", err)
 			continue
 		}
-		go handleConnection(conn)
+		go s.handleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	bufConn := bufio.NewReader(conn)
 
@@ -165,48 +177,54 @@ func handleConnection(conn net.Conn) {
 	targetPort = fmt.Sprintf("%d", (int(portBytes[0])<<8)|int(portBytes[1]))
 
 	var targetConn net.Conn
-
-	if downstreamProxy != nil && downstreamProxy.Enabled {
-		log.Printf("Using downstream proxy: %s", downstreamProxy.Addr)
-		switch downstreamProxy.ProxyType {
-		case "http", "https":
-			targetConn, err = ConnectViaHttpProxy(downstreamProxy.Addr, targetHost, targetPort)
-		case "socks5":
-			targetConn, err = ConnectViaSocks5Proxy(downstreamProxy.Addr, targetHost, targetPort)
-		default:
-			err = fmt.Errorf("unsupported downstream proxy type: %s", downstreamProxy.ProxyType)
-		}
-	} else {
-		sysProxy, err := GetSystemProxy()
+	//二级代理的优先级高于系统代理
+	if s.downProxyInfo.Enabled {
+		targetConn, err = s.useDownProxy(targetHost, targetPort)
 		if err != nil {
-			log.Printf("Failed to get system proxy: %v", err)
+			return
 		}
-		if sysProxy != nil && sysProxy.Enabled {
-			log.Printf("Using system proxy: %s", sysProxy.Addr)
-			switch sysProxy.ProxyType {
-			case "http", "https":
-				targetConn, err = ConnectViaHttpProxy(sysProxy.Addr, targetHost, targetPort)
-			case "socks5":
-				targetConn, err = ConnectViaSocks5Proxy(sysProxy.Addr, targetHost, targetPort)
-			default:
-				log.Printf("Unsupported proxy type: %s, connecting directly", sysProxy.ProxyType)
-				targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
-			}
-		} else {
-			// Connect directly if no system proxy is enabled
-			targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
-		}
-	}
 
-	if err != nil {
-		log.Printf("Failed to connect to target: %v", err)
+		s.forward(targetConn, conn)
 		return
 	}
+
+	if !s.systemProxy {
+		targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+		if err != nil {
+			return
+		}
+		s.forward(targetConn, conn)
+		return
+	}
+
+	var sysProxy *ProxyInfo
+	sysProxy, err = GetSystemProxy()
+	if err != nil {
+		log.Printf("Failed to get system proxy: %v", err)
+		return
+	}
+	if !sysProxy.Enabled {
+		targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+		if err != nil {
+			return
+		}
+		s.forward(targetConn, conn)
+		return
+
+	}
+
+	targetConn, err = s.useSystemProxy(sysProxy, targetHost, targetPort)
+	if err != nil {
+		return
+	}
+	s.forward(targetConn, conn)
+	return
+}
+
+func (s *Server) forward(targetConn net.Conn, conn net.Conn) {
 	if targetConn == nil {
 		return
 	}
-	// Send the response - BND.ADDR and BND.PORT should be the address and port that the proxy is using
-	// Get the local address that the proxy is using for this connection
 	localAddr := targetConn.LocalAddr().(*net.TCPAddr)
 	ip := localAddr.IP.To4()
 	port := uint16(localAddr.Port)
@@ -234,7 +252,7 @@ func handleConnection(conn net.Conn) {
 	response[8] = byte(port >> 8)
 	response[9] = byte(port & 0xff)
 
-	_, err = conn.Write(response)
+	_, err := conn.Write(response)
 	if err != nil {
 		log.Printf("Failed to write response: %v", err)
 		return
@@ -266,4 +284,29 @@ func handleConnection(conn net.Conn) {
 
 	// Wait for both copy operations to complete
 	wg.Wait()
+}
+
+func (s *Server) useDownProxy(targetHost string,
+	targetPort string) (net.Conn, error) {
+	log.Printf("Using downstream proxy: %s", s.downProxyInfo.Addr)
+	switch s.downProxyInfo.ProxyType {
+	case "http", "https":
+		return ConnectViaHttpProxy(s.downProxyInfo.Addr, targetHost, targetPort)
+	case "socks5":
+		return ConnectViaSocks5Proxy(s.downProxyInfo.Addr, targetHost, targetPort)
+	}
+	err := fmt.Errorf("unsupported downstream proxy type: %s", s.downProxyInfo.ProxyType)
+	return nil, err
+}
+
+func (this *Server) useSystemProxy(sysProxy *ProxyInfo, targetHost string, targetPort string) (net.Conn, error) {
+	log.Printf("Using system proxy: %s", sysProxy.Addr)
+	switch sysProxy.ProxyType {
+	case "http", "https":
+		return ConnectViaHttpProxy(sysProxy.Addr, targetHost, targetPort)
+	case "socks5":
+		return ConnectViaSocks5Proxy(sysProxy.Addr, targetHost, targetPort)
+	}
+	err := fmt.Errorf("unsupported system proxy type: %s", sysProxy.ProxyType)
+	return nil, err
 }
