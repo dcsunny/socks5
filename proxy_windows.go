@@ -5,14 +5,16 @@ package socks5
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
 	"golang.org/x/sys/windows/registry"
 )
 
-// getProxy retrieves proxy settings from Windows registry
+// getProxy retrieves proxy settings from Windows registry and environment variables
 func getProxy() (*ProxyInfo, error) {
+	// First try to get proxy from Windows registry
 	// Open the registry key for Internet Settings
 	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.QUERY_VALUE)
 	if err != nil {
@@ -26,9 +28,9 @@ func getProxy() (*ProxyInfo, error) {
 		return nil, fmt.Errorf("failed to get ProxyEnable value: %v", err)
 	}
 
-	// If proxy is not enabled, return nil
+	// If proxy is not enabled, try environment variables
 	if proxyEnable == 0 {
-		return nil, nil
+		return getEnvProxy()
 	}
 
 	// Get proxy server address
@@ -94,4 +96,48 @@ func getProxy() (*ProxyInfo, error) {
 		Addr:      fmt.Sprintf("%s://%s:%s", proxyType, host, port),
 		Enabled:   true,
 	}, nil
+}
+
+// getEnvProxy retrieves proxy settings from environment variables
+func getEnvProxy() (*ProxyInfo, error) {
+	// Check SOCKS proxy first
+	socksProxy := os.Getenv("SOCKS_PROXY")
+	if socksProxy == "" {
+		socksProxy = os.Getenv("socks_proxy")
+	}
+	if socksProxy != "" {
+		return &ProxyInfo{
+			ProxyType: "socks5",
+			Addr:      socksProxy,
+			Enabled:   true,
+		}, nil
+	}
+
+	// Then check HTTP proxy
+	httpProxy := os.Getenv("HTTP_PROXY")
+	if httpProxy == "" {
+		httpProxy = os.Getenv("http_proxy")
+	}
+	if httpProxy != "" {
+		return &ProxyInfo{
+			ProxyType: "http",
+			Addr:      httpProxy,
+			Enabled:   true,
+		}, nil
+	}
+
+	// Finally check HTTPS proxy
+	httpsProxy := os.Getenv("HTTPS_PROXY")
+	if httpsProxy == "" {
+		httpsProxy = os.Getenv("https_proxy")
+	}
+	if httpsProxy != "" {
+		return &ProxyInfo{
+			ProxyType: "http",
+			Addr:      httpsProxy,
+			Enabled:   true,
+		}, nil
+	}
+
+	return nil, nil
 }

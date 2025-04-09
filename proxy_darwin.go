@@ -5,6 +5,7 @@ package socks5
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -52,8 +53,50 @@ func getProxy() (*ProxyInfo, error) {
 		}
 	}
 
-	//检查环境变量的代理
+	// Check environment variables
+	return getEnvProxy()
+}
 
-	// No proxy enabled
+// getEnvProxy retrieves proxy settings from environment variables
+func getEnvProxy() (*ProxyInfo, error) {
+	// Check SOCKS proxy first
+	socksProxy := os.Getenv("SOCKS_PROXY")
+	if socksProxy == "" {
+		socksProxy = os.Getenv("socks_proxy")
+	}
+	if socksProxy != "" {
+		return &ProxyInfo{
+			ProxyType: "socks5",
+			Addr:      socksProxy,
+			Enabled:   true,
+		}, nil
+	}
+
+	// Then check HTTP proxy
+	httpProxy := os.Getenv("HTTP_PROXY")
+	if httpProxy == "" {
+		httpProxy = os.Getenv("http_proxy")
+	}
+	if httpProxy != "" {
+		return &ProxyInfo{
+			ProxyType: "http",
+			Addr:      httpProxy,
+			Enabled:   true,
+		}, nil
+	}
+
+	// Finally check HTTPS proxy
+	httpsProxy := os.Getenv("HTTPS_PROXY")
+	if httpsProxy == "" {
+		httpsProxy = os.Getenv("https_proxy")
+	}
+	if httpsProxy != "" {
+		return &ProxyInfo{
+			ProxyType: "http",
+			Addr:      httpsProxy,
+			Enabled:   true,
+		}, nil
+	}
+
 	return nil, nil
 }
