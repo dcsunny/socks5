@@ -6,52 +6,21 @@ import (
 	"net"
 	"net/url"
 	"strings"
-
-	"golang.org/x/net/proxy"
 )
 
-// ConnectViaHttpProxy connects to the target through an HTTP proxy
-func ConnectViaHttpProxy(proxyAddr, targetHost, targetPort string) (net.Conn, error) {
+// ConnectViaProxy connects to the target through an proxy
+func ConnectViaProxy(proxyAddr, targetHost, targetPort string) (net.Conn, error) {
 	proxyURL, err := url.Parse(proxyAddr)
 	if err != nil {
 		log.Printf("Error parsing proxy URL:%s", err)
 		return nil, err
 	}
 	remoteAddr := fmt.Sprintf("%s:%s", targetHost, targetPort)
-	dialer := &HttpProxyDialer{ProxyUrl: proxyURL}
+	dialer := &ProxyDialer{ProxyUrl: proxyURL}
 	var conn net.Conn
 	conn, err = dialer.Dial("tcp", remoteAddr)
 	if err != nil {
 		log.Print(err)
-		return nil, err
-	}
-	return conn, nil
-}
-
-// ConnectViaSocks5Proxy connects to the target through a SOCKS5 proxy
-func ConnectViaSocks5Proxy(proxyAddr, targetHost, targetPort string) (net.Conn, error) {
-	proxyURL, err := url.Parse(proxyAddr)
-	if err != nil {
-		log.Printf("Error parsing proxy URL:%s", err)
-		return nil, err
-	}
-
-	auth := &proxy.Auth{
-		User: proxyURL.User.Username(),
-	}
-	auth.Password, _ = proxyURL.User.Password()
-	var dialer proxy.Dialer
-	dialer, err = proxy.SOCKS5("tcp", proxyURL.Host,
-		auth,
-		proxy.Direct,
-	)
-	if err != nil {
-		return nil, err
-	}
-	remoteAddr := fmt.Sprintf("%s:%s", targetHost, targetPort)
-	var conn net.Conn
-	conn, err = dialer.Dial("tcp", remoteAddr)
-	if err != nil {
 		return nil, err
 	}
 	return conn, nil

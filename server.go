@@ -22,13 +22,19 @@ type Server struct {
 	downProxy     string // 下游代理地址
 	listenAddr    string
 	downProxyInfo *DownProxyInfo
+	username      string // 用户名
+	password      string // 密码
+	authRequired  bool   // 是否启用认证
 }
 
-func NewServer(useSystemProxy bool, listenAddr string, downProxy string) *Server {
+func NewServer(useSystemProxy bool, listenAddr string, downProxy string, username string, password string) *Server {
 	s := &Server{
-		systemProxy: useSystemProxy,
-		downProxy:   downProxy,
-		listenAddr:  listenAddr,
+		systemProxy:  useSystemProxy,
+		downProxy:    downProxy,
+		listenAddr:   listenAddr,
+		username:     username,
+		password:     password,
+		authRequired: username != "" && password != "",
 	}
 	downProxyInfo := &DownProxyInfo{
 		Addr: s.downProxy,
@@ -100,17 +106,74 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 
-	// We only support no authentication
-	if !Contains(methods, 0) {
+	// Check authentication method
+	var method byte = 0 // No authentication by default
+	if s.authRequired {
+		method = 2 // Username/Password authentication
+		if !Contains(methods, method) {
+			log.Printf("Client doesn't support username/password authentication")
+			_, _ = conn.Write([]byte{Socks5Version, 0xFF}) // No acceptable methods
+			return
+		}
+	} else if !Contains(methods, 0) {
 		log.Printf("No supported authentication methods")
+		_, _ = conn.Write([]byte{Socks5Version, 0xFF})
 		return
 	}
 
-	// Send the response
-	_, err = conn.Write([]byte{Socks5Version, 0})
+	// Send auth method
+	_, err = conn.Write([]byte{Socks5Version, method})
 	if err != nil {
 		log.Printf("Failed to write response: %v", err)
 		return
+	}
+
+	// Handle username/password authentication if required
+	if s.authRequired {
+		// Read auth version
+		authVer, err := bufConn.ReadByte()
+		if err != nil || authVer != 1 {
+			log.Printf("Invalid auth version: %v", err)
+			return
+		}
+
+		// Read username
+		userLen, err := bufConn.ReadByte()
+		if err != nil {
+			log.Printf("Failed to read username length: %v", err)
+			return
+		}
+		username := make([]byte, userLen)
+		if _, err = io.ReadFull(bufConn, username); err != nil {
+			log.Printf("Failed to read username: %v", err)
+			return
+		}
+
+		// Read password
+		passLen, err := bufConn.ReadByte()
+		if err != nil {
+			log.Printf("Failed to read password length: %v", err)
+			return
+		}
+		password := make([]byte, passLen)
+		if _, err = io.ReadFull(bufConn, password); err != nil {
+			log.Printf("Failed to read password: %v", err)
+			return
+		}
+
+		// Verify credentials
+		if string(username) != s.username || string(password) != s.password {
+			log.Printf("Invalid credentials")
+			_, _ = conn.Write([]byte{1, 1}) // Auth failed
+			return
+		}
+
+		// Auth successful
+		_, err = conn.Write([]byte{1, 0})
+		if err != nil {
+			log.Printf("Failed to write auth response: %v", err)
+			return
+		}
 	}
 
 	// Read the request
@@ -290,10 +353,8 @@ func (s *Server) useDownProxy(targetHost string,
 	targetPort string) (net.Conn, error) {
 	//log.Printf("Using downstream proxy: %s", s.downProxyInfo.Addr)
 	switch s.downProxyInfo.ProxyType {
-	case "http", "https":
-		return ConnectViaHttpProxy(s.downProxyInfo.Addr, targetHost, targetPort)
-	case "socks5":
-		return ConnectViaSocks5Proxy(s.downProxyInfo.Addr, targetHost, targetPort)
+	case "http", "https", "socks5":
+		return ConnectViaProxy(s.downProxyInfo.Addr, targetHost, targetPort)
 	}
 	err := fmt.Errorf("unsupported downstream proxy type: %s", s.downProxyInfo.ProxyType)
 	return nil, err
@@ -302,10 +363,8 @@ func (s *Server) useDownProxy(targetHost string,
 func (this *Server) useSystemProxy(sysProxy *ProxyInfo, targetHost string, targetPort string) (net.Conn, error) {
 	//log.Printf("Using system proxy: %s", sysProxy.Addr)
 	switch sysProxy.ProxyType {
-	case "http", "https":
-		return ConnectViaHttpProxy(sysProxy.Addr, targetHost, targetPort)
-	case "socks5":
-		return ConnectViaSocks5Proxy(sysProxy.Addr, targetHost, targetPort)
+	case "http", "https", "socks5":
+		return ConnectViaProxy(sysProxy.Addr, targetHost, targetPort)
 	}
 	err := fmt.Errorf("unsupported system proxy type: %s", sysProxy.ProxyType)
 	return nil, err

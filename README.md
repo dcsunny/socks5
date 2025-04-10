@@ -5,6 +5,7 @@
 ## 特性
 
 - 支持标准SOCKS5协议
+- 支持用户名/密码认证
 - 自动检测并使用系统代理设置
 - 支持配置下游代理（SOCKS5/HTTP/HTTPS）
 - 跨平台支持（Windows/Linux/macOS）
@@ -29,6 +30,8 @@ socks5 [flags]
 -l, --listen string        监听地址 (默认 "0.0.0.0:21080")
 -d, --down-proxy string    下游代理地址 (例如: "socks5://127.0.0.1:1080" 或 "http://127.0.0.1:8080")
 -s, --system-proxy        是否使用系统代理 (默认 true)
+-u, --username string     认证用户名
+-p, --password string     认证密码
 ```
 
 ### 示例
@@ -56,6 +59,11 @@ socks5 -d http://127.0.0.1:8080
 5. 禁用系统代理：
 ```bash
 socks5 -s=false
+```
+
+6. 启用用户名密码认证：
+```bash
+socks5 -u admin -p password123
 ```
 
 ## sdk 调用
