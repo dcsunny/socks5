@@ -252,7 +252,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 
 	if !s.systemProxy {
-		targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+		targetConn, err = net.Dial("tcp4", net.JoinHostPort(targetHost, targetPort))
 		if err != nil {
 			return
 		}
@@ -267,7 +267,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 	if !sysProxy.Enabled {
-		targetConn, err = net.Dial("tcp", net.JoinHostPort(targetHost, targetPort))
+		targetConn, err = net.Dial("tcp4", net.JoinHostPort(targetHost, targetPort))
 		if err != nil {
 			return
 		}
